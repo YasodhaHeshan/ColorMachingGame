@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5770E52E2F1B46D400C89616 /* ReadMe.md in Resources */ = {isa = PBXBuildFile; fileRef = 5770E52C2F1B46BC00C89616 /* ReadMe.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		5770E52C2F1B46BC00C89616 /* ReadMe.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ReadMe.md; sourceTree = "<group>"; };
 		57EC8C482F120A210035B478 /* ColorMachingGame.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ColorMachingGame.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		57EC8C3F2F120A210035B478 = {
 			isa = PBXGroup;
 			children = (
+				5770E52C2F1B46BC00C89616 /* ReadMe.md */,
 				57EC8C4A2F120A210035B478 /* ColorMachingGame */,
 				57EC8C492F120A210035B478 /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5770E52E2F1B46D400C89616 /* ReadMe.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
