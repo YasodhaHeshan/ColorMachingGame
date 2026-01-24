@@ -33,12 +33,11 @@ enum Difficulty: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    // Time allotted for each level
     var gameDuration: Int {
         switch self {
-        case .easy: return 30
-        case .medium: return 25
-        case .hard: return 20
+        case .easy: return 60
+        case .medium: return 45
+        case .hard: return 30
         }
     }
 }
@@ -171,7 +170,7 @@ struct StartGameView: View {
     }
 }
 
-// MARK: - Game View (With Timer and Back Button)
+// MARK: - Game View (With Enhanced Logic & Animations)
 struct ColorMatchGame: View {
     private let allColors: [Color] = [.red, .blue, .green, .yellow, .orange, .purple, .pink, .cyan, .indigo]
     
@@ -184,7 +183,15 @@ struct ColorMatchGame: View {
     @State private var timeLeft: Int
     @State private var isGameOver = false
     
-    // Timer Setup
+    // Streaks and Animation States
+    @State private var correctStreak = 0
+    @State private var wrongStreak = 0
+    @State private var shakeOffset: CGFloat = 0
+    @State private var targetScale: CGFloat = 1.0
+    @State private var timeBonusTrigger = false
+    @State private var floatingText: String = ""
+    @State private var floatingTextOpacity: Double = 0
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     init(difficulty: Difficulty, onExit: @escaping () -> Void) {
@@ -195,76 +202,95 @@ struct ColorMatchGame: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Updated Header with Back Icon
-            HStack {
-                Button(action: {
-                    saveAndExit()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.title2.bold())
-                        Text("Back")
-                            .font(.headline)
+        ZStack {
+            VStack(spacing: 20) {
+                // Header
+                HStack {
+                    Button(action: saveAndExit) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(.headline).bold()
                     }
-                    .foregroundStyle(.blue)
+                    
+                    Spacer()
+                    
+                    // Animated Timer
+                    HStack(spacing: 6) {
+                        Image(systemName: "timer")
+                        Text("\(timeLeft)").monospacedDigit()
+                    }
+                    .font(.title3.bold())
+                    .foregroundStyle(timeLeft < 6 ? .red : .primary)
+                    .scaleEffect(timeBonusTrigger ? 1.4 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.4), value: timeBonusTrigger)
+                    .padding(.vertical, 8).padding(.horizontal, 16)
+                    .background(.thinMaterial, in: Capsule())
+                    
+                    Spacer()
+                    
+                    Text("Score: \(score)")
+                        .font(.headline)
+                        .frame(width: 80, alignment: .trailing)
                 }
+                .padding(.horizontal)
                 
                 Spacer()
-                
-                // Timer UI
-                HStack(spacing: 6) {
-                    Image(systemName: "timer")
-                    Text("\(timeLeft)")
-                        .monospacedDigit()
-                }
-                .font(.title3.bold())
-                .foregroundStyle(timeLeft < 6 ? .red : .primary)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background(.thinMaterial, in: Capsule())
-                
-                Spacer()
-                
-                Text("Score: \(score)")
-                    .font(.headline)
-                    .frame(width: 80, alignment: .trailing)
-            }
-            .padding(.horizontal)
-            
-            Spacer()
 
-            VStack(spacing: 12) {
-                Text("Match this color:")
-                    .font(.subheadline).bold()
-                    .foregroundStyle(.secondary)
-                
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(targetColor)
-                    .frame(width: 110, height: 110)
-                    .shadow(color: targetColor.opacity(0.3), radius: 10, x: 0, y: 5)
-            }
-            
-            // Grid Layout
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: difficulty.gridColumns)
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(0..<gridColors.count, id: \.self) { index in
-                    Button {
-                        checkMatch(at: index)
-                    } label: {
-                        RoundedRectangle(cornerRadius: 15)
-                            .fill(gridColors[index])
-                            .frame(height: 80)
-                            .shadow(radius: 2)
-                    }
-                    .disabled(isGameOver)
+                // Target Color Section
+                VStack(spacing: 12) {
+                    Text("Match this color:")
+                        .font(.subheadline).bold()
+                        .foregroundStyle(.secondary)
+                    
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(targetColor)
+                        .frame(width: 120, height: 120)
+                        .scaleEffect(targetScale)
+                        .shadow(color: targetColor.opacity(0.4), radius: 15)
                 }
+                
+                // Grid
+                let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: difficulty.gridColumns)
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(0..<gridColors.count, id: \.self) { index in
+                        Button {
+                            checkMatch(at: index)
+                        } label: {
+                            RoundedRectangle(cornerRadius: 15)
+                                .fill(gridColors[index])
+                                .frame(height: 80)
+                                .shadow(radius: 2)
+                        }
+                        .disabled(isGameOver)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .offset(x: shakeOffset) // Error Shake
+                
+                // Streak info
+                HStack {
+                    if correctStreak > 0 {
+                        Text("Combo: \(correctStreak)x").foregroundColor(.green).bold()
+                    } else if wrongStreak > 0 {
+                        Text("Misses: \(wrongStreak)").foregroundColor(.red).bold()
+                    }
+                }
+                .font(.callout)
+                .frame(height: 20)
+                
+                Spacer()
             }
-            .padding(.horizontal, 24)
-            
-            Spacer()
+            .padding(.vertical)
+
+            // Floating Bonus Text Overlay
+            Text(floatingText)
+                .font(.system(size: 32, weight: .black, design: .rounded))
+                .foregroundColor(floatingText.contains("+") ? .green : .red)
+                .opacity(floatingTextOpacity)
+                .offset(y: floatingTextOpacity == 1 ? -100 : -50)
         }
-        .padding(.vertical)
         .onAppear { resetGame() }
         .onReceive(timer) { _ in
             if timeLeft > 0 {
@@ -273,19 +299,95 @@ struct ColorMatchGame: View {
                 handleTimeOut()
             }
         }
-        // Game Over Alert
         .alert("Time's Up!", isPresented: $isGameOver) {
             Button("Retry") { resetGame() }
             Button("Exit") { onExit() }
         } message: {
-            Text("Your score: \(score)")
+            Text("Final Score: \(score)")
         }
     }
     
     // MARK: - Logic
+    
+    private func checkMatch(at index: Int) {
+        if gridColors[index] == targetColor {
+            handleCorrectMatch()
+        } else {
+            handleWrongMatch()
+        }
+    }
+    
+    private func handleCorrectMatch() {
+        score += 1
+        correctStreak += 1
+        wrongStreak = 0
+        
+        // Success Pulse Animation
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+            targetScale = 1.2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            targetScale = 1.0
+        }
+        
+        // 3-Streak Reward
+        if correctStreak % 3 == 0 {
+            triggerFloatingText(text: "+5s TIME BONUS!")
+            modifyTime(by: 5)
+        }
+        
+        lightlyReshuffle()
+        pickNewTargetColor()
+    }
+    
+    private func handleWrongMatch() {
+        score = max(0, score - 1)
+        wrongStreak += 1
+        correctStreak = 0
+        
+        // Shake Animation
+        triggerShake()
+        
+        // 3-Wrong Penalty
+        if wrongStreak % 3 == 0 {
+            triggerFloatingText(text: "-5s PENALTY")
+            modifyTime(by: -5)
+        }
+    }
+    
+    private func triggerShake() {
+        withAnimation(.default) {
+            for offset in [-10, 10, -10, 10, 0] {
+                shakeOffset = CGFloat(offset)
+            }
+        }
+    }
+    
+    private func modifyTime(by seconds: Int) {
+        timeLeft = max(0, timeLeft + seconds)
+        timeBonusTrigger = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            timeBonusTrigger = false
+        }
+    }
+    
+    private func triggerFloatingText(text: String) {
+        floatingText = text
+        withAnimation(.easeOut(duration: 0.5)) {
+            floatingTextOpacity = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            withAnimation(.easeIn(duration: 0.3)) {
+                floatingTextOpacity = 0
+            }
+        }
+    }
+
     private func resetGame() {
         score = 0
         timeLeft = difficulty.gameDuration
+        correctStreak = 0
+        wrongStreak = 0
         isGameOver = false
         setupNewLevel()
     }
@@ -299,16 +401,6 @@ struct ColorMatchGame: View {
     
     private func pickNewTargetColor() {
         targetColor = gridColors.randomElement() ?? .blue
-    }
-    
-    private func checkMatch(at index: Int) {
-        if gridColors[index] == targetColor {
-            score += 1
-            lightlyReshuffle()
-            pickNewTargetColor()
-        } else {
-            score = max(0, score - 1)
-        }
     }
     
     private func lightlyReshuffle() {
@@ -395,8 +487,4 @@ struct HistoryView: View {
             }
         }
     }
-}
-
-#Preview {
-    ContentView()
 }
