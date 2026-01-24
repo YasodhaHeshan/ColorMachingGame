@@ -1,11 +1,5 @@
-//
-//  ContentView.swift
-//  ColorMachingGame
-//
-//  Created by COBSCCOMP242P-042 on 2026-01-10.
-//
-
 import SwiftUI
+import Combine
 
 // MARK: - Difficulty
 enum Difficulty: String, CaseIterable, Identifiable, Codable {
@@ -15,7 +9,6 @@ enum Difficulty: String, CaseIterable, Identifiable, Codable {
     
     var id: String { rawValue }
     
-    // Controls how many distinct colors appear in the grid
     var numberOfDistinctColors: Int {
         switch self {
         case .easy: return 3
@@ -24,16 +17,14 @@ enum Difficulty: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    // Controls how many grid cells appear
     var gridCellCount: Int {
         switch self {
-        case .easy: return 9  // 3x 3
-        case .medium: return 16 // 4x 4
-        case .hard: return 20 // 5x 4
+        case .easy: return 9
+        case .medium: return 16
+        case .hard: return 20
         }
     }
 
-    // Suggested number of columns for the grid layout
     var gridColumns: Int {
         switch self {
         case .easy: return 3
@@ -41,9 +32,18 @@ enum Difficulty: String, CaseIterable, Identifiable, Codable {
         case .hard: return 5
         }
     }
+    
+    // Time allotted for each level
+    var gameDuration: Int {
+        switch self {
+        case .easy: return 30
+        case .medium: return 25
+        case .hard: return 20
+        }
+    }
 }
 
-// MARK: - Score History Models
+// MARK: - Score Models
 struct ScoreEntry: Identifiable, Codable {
     let id: UUID
     let date: Date
@@ -79,7 +79,7 @@ struct ScoreStore {
     }
 }
 
-// Root view expected by ColorMachingGameApp
+// MARK: - Root Content View
 struct ContentView: View {
     @State private var selectedDifficulty: Difficulty? = nil
     @State private var showHistory = false
@@ -87,7 +87,6 @@ struct ContentView: View {
     var body: some View {
         if let difficulty = selectedDifficulty {
             ColorMatchGame(difficulty: difficulty) {
-                // onExit: return to start screen
                 selectedDifficulty = nil
             }
         } else {
@@ -106,47 +105,53 @@ struct ContentView: View {
 // MARK: - Start Screen
 struct StartGameView: View {
     var startAction: (Difficulty) -> Void
-    var onShowHistory: () -> Void = {}
+    var onShowHistory: () -> Void
     
     var body: some View {
         VStack(spacing: 24) {
-            Text("Color Match Game")
-                .font(.largeTitle).bold()
-            Text("Choose Difficulty")
+            Spacer()
+            
+            Text("Color Match")
+                .font(.system(size: 48, weight: .black, design: .rounded))
+            
+            Text("Select Difficulty")
                 .font(.headline)
                 .foregroundStyle(.secondary)
             
-            ForEach(Difficulty.allCases) { difficulty in
-                Button {
-                    startAction(difficulty)
-                } label: {
-                    HStack {
-                        Image(systemName: icon(for: difficulty))
-                        Text(difficulty.rawValue)
-                            .font(.title3).bold()
+            VStack(spacing: 16) {
+                ForEach(Difficulty.allCases) { difficulty in
+                    Button {
+                        startAction(difficulty)
+                    } label: {
+                        HStack {
+                            Image(systemName: icon(for: difficulty))
+                            Text(difficulty.rawValue)
+                                .font(.title3).bold()
+                            Spacer()
+                            Text("\(difficulty.gameDuration)s")
+                                .font(.caption).bold()
+                                .padding(6)
+                                .background(.black.opacity(0.1), in: Capsule())
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
+                    .buttonStyle(.borderedProminent)
+                    .tint(color(for: difficulty))
                 }
-                .buttonStyle(.borderedProminent)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 40)
             
-            Button {
-                onShowHistory()
-            } label: {
+            Button(action: onShowHistory) {
                 Label("View History", systemImage: "clock.arrow.circlepath")
                     .font(.headline)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(.secondary)
-            .padding(.horizontal)
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+            .padding(.top, 10)
             
-            Spacer(minLength: 0)
+            Spacer()
         }
-        .padding()
     }
     
     private func icon(for difficulty: Difficulty) -> String {
@@ -156,127 +161,177 @@ struct StartGameView: View {
         case .hard: return "flame.fill"
         }
     }
+    
+    private func color(for difficulty: Difficulty) -> Color {
+        switch difficulty {
+        case .easy: return .green
+        case .medium: return .orange
+        case .hard: return .red
+        }
+    }
 }
 
-// MARK: - Game View
+// MARK: - Game View (With Timer and Back Button)
 struct ColorMatchGame: View {
-    // All available colors in the palette
     private let allColors: [Color] = [.red, .blue, .green, .yellow, .orange, .purple, .pink, .cyan, .indigo]
     
     let difficulty: Difficulty
-    var onExit: () -> Void = {}
+    var onExit: () -> Void
     
     @State private var gridColors: [Color] = []
     @State private var targetColor: Color = .gray
     @State private var score = 0
+    @State private var timeLeft: Int
+    @State private var isGameOver = false
     
-    init(difficulty: Difficulty, onExit: @escaping () -> Void = {}) {
+    // Timer Setup
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    init(difficulty: Difficulty, onExit: @escaping () -> Void) {
         self.difficulty = difficulty
         self.onExit = onExit
+        _timeLeft = State(initialValue: difficulty.gameDuration)
         _gridColors = State(initialValue: Array(repeating: .gray, count: difficulty.gridCellCount))
     }
     
-    private func persistCurrentScoreIfNeeded() {
-        guard score > 0 else { return }
-        let entry = ScoreEntry(difficulty: difficulty, score: score)
-        ScoreStore.append(entry)
-        score = 0
-    }
-
     var body: some View {
         VStack(spacing: 20) {
+            // Updated Header with Back Icon
             HStack {
-                Button {
-                    persistCurrentScoreIfNeeded()
-                    onExit()
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
+                Button(action: {
+                    saveAndExit()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.title2.bold())
+                        Text("Back")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(.blue)
                 }
+                
                 Spacer()
-                Text(difficulty.rawValue)
+                
+                // Timer UI
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                    Text("\(timeLeft)")
+                        .monospacedDigit()
+                }
+                .font(.title3.bold())
+                .foregroundStyle(timeLeft < 6 ? .red : .primary)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .background(.thinMaterial, in: Capsule())
+                
+                Spacer()
+                
+                Text("Score: \(score)")
                     .font(.headline)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 12)
-                    .background(.thinMaterial, in: Capsule())
+                    .frame(width: 80, alignment: .trailing)
             }
+            .padding(.horizontal)
             
-            Text("Score: \(score)")
-                .font(.largeTitle)
-                .bold()
-            
-            VStack(spacing: 8) {
+            Spacer()
+
+            VStack(spacing: 12) {
                 Text("Match this color:")
-                    .font(.headline)
-                RoundedRectangle(cornerRadius: 15)
+                    .font(.subheadline).bold()
+                    .foregroundStyle(.secondary)
+                
+                RoundedRectangle(cornerRadius: 20)
                     .fill(targetColor)
-                    .frame(width: 120, height: 120)
-                    .shadow(radius: 5)
+                    .frame(width: 110, height: 110)
+                    .shadow(color: targetColor.opacity(0.3), radius: 10, x: 0, y: 5)
             }
             
-            let columns = Array(repeating: GridItem(.flexible()), count: difficulty.gridColumns)
-            LazyVGrid(columns: columns, spacing: 15) {
+            // Grid Layout
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: difficulty.gridColumns)
+            LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(0..<gridColors.count, id: \.self) { index in
                     Button {
                         checkMatch(at: index)
                     } label: {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 15)
                             .fill(gridColors[index])
-                            .frame(height: 100)
+                            .frame(height: 80)
                             .shadow(radius: 2)
                     }
+                    .disabled(isGameOver)
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 24)
             
-            HStack(spacing: 12) {
-                Button("Reset Game") {
-                    persistCurrentScoreIfNeeded()
-                    resetGame()
-                }
-                .buttonStyle(.bordered)
-                Button("New Target") { pickNewTargetColor() }
-                    .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .padding(.vertical)
+        .onAppear { resetGame() }
+        .onReceive(timer) { _ in
+            if timeLeft > 0 {
+                timeLeft -= 1
+            } else if !isGameOver {
+                handleTimeOut()
             }
         }
-        .padding()
-        .onAppear { resetGame() }
-        .onDisappear { persistCurrentScoreIfNeeded() }
+        // Game Over Alert
+        .alert("Time's Up!", isPresented: $isGameOver) {
+            Button("Retry") { resetGame() }
+            Button("Exit") { onExit() }
+        } message: {
+            Text("Your score: \(score)")
+        }
     }
     
     // MARK: - Logic
     private func resetGame() {
-        // Build the palette based on difficulty
+        score = 0
+        timeLeft = difficulty.gameDuration
+        isGameOver = false
+        setupNewLevel()
+    }
+    
+    private func setupNewLevel() {
         let distinctCount = min(difficulty.numberOfDistinctColors, allColors.count)
         let palette = Array(allColors.shuffled().prefix(distinctCount))
-        
-        // Fill grid cells using the limited palette
-        gridColors = (0..<difficulty.gridCellCount).map { _ in palette.randomElement() ?? .red }
+        gridColors = (0..<difficulty.gridCellCount).map { _ in palette.randomElement() ?? .blue }
         pickNewTargetColor()
     }
     
     private func pickNewTargetColor() {
-        targetColor = gridColors.randomElement() ?? .red
+        targetColor = gridColors.randomElement() ?? .blue
     }
     
     private func checkMatch(at index: Int) {
         if gridColors[index] == targetColor {
             score += 1
-            // On correct match, choose a new target and slightly reshuffle a few cells
             lightlyReshuffle()
             pickNewTargetColor()
         } else {
-            if score > 0 { score -= 1 }
+            score = max(0, score - 1)
         }
     }
     
     private func lightlyReshuffle() {
-        // Change 3 random cells to new colors from the current difficulty palette
         let distinctCount = min(difficulty.numberOfDistinctColors, allColors.count)
         let palette = Array(allColors.shuffled().prefix(distinctCount))
-        let indices = Array(0..<gridColors.count).shuffled().prefix(min(3, gridColors.count))
+        let indices = Array(0..<gridColors.count).shuffled().prefix(3)
         for i in indices {
             gridColors[i] = palette.randomElement() ?? gridColors[i]
         }
+    }
+    
+    private func handleTimeOut() {
+        isGameOver = true
+        if score > 0 {
+            ScoreStore.append(ScoreEntry(difficulty: difficulty, score: score))
+        }
+    }
+    
+    private func saveAndExit() {
+        if score > 0 && !isGameOver {
+            ScoreStore.append(ScoreEntry(difficulty: difficulty, score: score))
+        }
+        onExit()
     }
 }
 
@@ -292,7 +347,7 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Best Scores") {
+                Section("Personal Bests") {
                     ForEach(Difficulty.allCases) { diff in
                         HStack {
                             Text(diff.rawValue)
@@ -300,7 +355,7 @@ struct HistoryView: View {
                             if let best = bestScore(for: diff) {
                                 Text("\(best)").bold()
                             } else {
-                                Text("—").foregroundStyle(.secondary)
+                                Text("-").foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -308,21 +363,17 @@ struct HistoryView: View {
 
                 Section("Recent Scores") {
                     if entries.isEmpty {
-                        Text("No scores yet. Play a game to set your first score!")
+                        Text("No records found.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(entries) { entry in
-                            HStack(alignment: .firstTextBaseline) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.difficulty.rawValue)
-                                        .font(.headline)
-                                    Text(entry.date, style: .date)
-                                        .foregroundStyle(.secondary)
-                                        .font(.caption)
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(entry.difficulty.rawValue).font(.headline)
+                                    Text(entry.date, style: .date).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text("\(entry.score)")
-                                    .font(.title3).bold()
+                                Text("\(entry.score)").font(.title3).bold()
                             }
                         }
                         .onDelete { indexSet in
@@ -334,15 +385,12 @@ struct HistoryView: View {
             }
             .navigationTitle("Score History")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") { dismiss() }
-                }
+                ToolbarItem(placement: .topBarLeading) { Button("Dismiss") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Clear All") {
                         entries.removeAll()
                         ScoreStore.save(entries)
                     }
-                    .disabled(entries.isEmpty)
                 }
             }
         }
@@ -352,4 +400,3 @@ struct HistoryView: View {
 #Preview {
     ContentView()
 }
-
